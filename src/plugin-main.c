@@ -182,6 +182,12 @@ static void set_filter_enabled(void *data, calldata_t *calldata)
 		decklink_output_filter_stop(filter);
 }
 
+static void parent_updated(void *data, calldata_t *calldata)
+{
+	struct decklink_output_filter_context *filter = data;
+	decklink_output_filter_update(filter, NULL);
+}
+
 static void frontend_event(enum obs_frontend_event event, void *data)
 {
 	struct decklink_output_filter_context *filter = data;
@@ -205,6 +211,10 @@ static void *decklink_output_filter_create(obs_data_t *settings,
 
 	signal_handler_t *sh = obs_source_get_signal_handler(filter->source);
 	signal_handler_connect(sh, "enable", set_filter_enabled, filter);
+
+	sh = obs_source_get_signal_handler(
+		obs_filter_get_parent(filter->source));
+	signal_handler_connect(sh, "update_properties", parent_updated, filter);
 
 	obs_frontend_add_event_callback(frontend_event, filter);
 
