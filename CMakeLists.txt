@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Change obs-plugintemplate to your plugin's name in a machine-readable format
-# (e.g.: obs-myawesomeplugin) and set 
+# (e.g.: obs-myawesomeplugin) and set
 project(obs-decklink-output-filter VERSION 1.0.0)
 
 # Replace `Your Name Here` with the name (yours or your organization's) you want
@@ -22,6 +22,70 @@ set(CMAKE_AUTOUIC ON)
 # In case you need C++
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(LIB_OBS libobs)
+
+
+# build obs lib
+if (WIN32)
+    # Windows
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+    if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(PLAT "32bit")
+        set(LINK_PLAT "x86")
+    elseif (CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(PLAT "64bit")
+        set(LINK_PLAT "x64")
+    else ()
+        message(FATAL_ERROR "Unsupported Architecture!")
+    endif ()
+
+    if (NOT DEFINED OBS_SRC_DIR)
+        set(OBS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/obs-src")
+    endif ()
+    if (NOT DEFINED OBS_BIN_DIR)
+        set(OBS_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/obs-bin")
+    endif ()
+
+    if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+        if (${PORTABLE_MODE})
+            set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/obs-bin" CACHE PATH "" FORCE)
+        else ()
+            set(CMAKE_INSTALL_PREFIX "$ENV{ProgramData}/obs-studio" CACHE PATH "" FORCE)
+        endif ()
+    endif ()
+
+    execute_process(COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tools/pexports.exe"
+        "${OBS_BIN_DIR}/bin/${PLAT}/obs.dll"
+        OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/libobs.def"
+        COMMAND_ECHO STDOUT
+    )
+    execute_process(COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tools/pexports.exe"
+        "${OBS_BIN_DIR}/bin/${PLAT}/obs-frontend-api.dll"
+        OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/obs-frontend-api.def"
+        COMMAND_ECHO STDOUT
+    )
+    execute_process(COMMAND ${CMAKE_LINKER}
+        "/lib" "/MACHINE:${LINK_PLAT}"
+        "/def:${CMAKE_CURRENT_BINARY_DIR}/libobs.def"
+        "/out:${CMAKE_CURRENT_BINARY_DIR}/libobs.lib"
+    )
+    execute_process(COMMAND ${CMAKE_LINKER}
+        "/lib" "/MACHINE:${LINK_PLAT}"
+        "/def:${CMAKE_CURRENT_BINARY_DIR}/obs-frontend-api.def"
+        "/out:${CMAKE_CURRENT_BINARY_DIR}/obs-frontend-api.lib"
+    )
+elseif (APPLE)
+    # macOS
+    find_library(_LIB_OBS "${LIB_OBS}.0.dylib" PATHS ${OBS_BIN_DIR} REQUIRED)
+    set(LIB_OBS "${_LIB_OBS}")
+elseif (UNIX)
+    # Linux
+    find_package(LibObs REQUIRED)
+else ()
+    message(FATAL_ERROR "Unsupported OS!")
+endif ()
 
 if (WIN32 OR APPLE)
 include(external/FindLibObs.cmake)

@@ -11,3 +11,10 @@
 
 # ignore generated files
 *.generated.*
+/cmbuild
+/build_x86
+/build_x64
+/obs-bin
+/*.zip
+/*.7z
+/obs-src
