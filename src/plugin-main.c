@@ -149,6 +149,7 @@ static void decklink_output_filter_start(void *data)
 	vi.name = obs_source_get_name(filter->source);
 
 	video_output_open(&filter->video_output, &vi);
+	//testing mute
 	obs_output_set_media(filter->output, filter->video_output,
 			     NULL);
 
