@@ -21,5 +21,5 @@ set QTDIR64=-DQTDIR="C:/QtDep/5.15.2/msvc2019_64"
 cd obs-src
 mkdir build
 cd build
-cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_SYSTEM_VERSION="10.0.19041.0" -DDepsPath="C:\Users\stephanel\source\repos\obs-decklink-output-filter\cmbuild\deps\win64" %QTDIR64% -DDISABLE_PLUGINS=TRUE -DCOPIED_DEPENDENCIES=FALSE -DCOPY_DEPENDENCIES=TRUE
+cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_SYSTEM_VERSION="10.0.19041.0" -DDepsPath="C:\Users\stephanel\source\repos\obs-decklink-output-filter\cmbuild\deps\win64" %QTDIR64% -DDISABLE_PLUGINS=FALSE -DCOPIED_DEPENDENCIES=FALSE -DCOPY_DEPENDENCIES=TRUE
 msbuild /m /p:Configuration=RelWithDebInfo C:\Users\stephanel\source\repos\obs-decklink-output-filter\obs-src\build\obs-studio.sln
