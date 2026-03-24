@@ -70,13 +70,24 @@ static void decklink_output_filter_start(void *data, obs_data_t *settings)
 		return;
 	}
 
+	obs_log(LOG_INFO, "Creating decklink output (device='%s')",
+		obs_data_get_string(settings, "device_name"));
 	filter->output = obs_output_create("decklink_output", "decklink_filter_output", settings, NULL);
+	obs_log(LOG_INFO, "decklink output created: %s", filter->output ? "ok" : "FAILED");
 
 	struct obs_video_info ovi;
 	obs_get_video_info(&ovi);
-	filter->canvas = obs_canvas_create_private(NULL, &ovi, DEVICE);
+	obs_log(LOG_INFO, "Canvas video info: %ux%u @ %u/%u fps, format=%u",
+		ovi.base_width, ovi.base_height, ovi.fps_num, ovi.fps_den, ovi.output_format);
 
-	obs_canvas_set_channel(filter->canvas, 0, obs_filter_get_parent(filter->source));
+	filter->canvas = obs_canvas_create_private(NULL, &ovi, DEVICE);
+	obs_log(LOG_INFO, "Canvas created: %s", filter->canvas ? "ok" : "FAILED");
+
+	obs_source_t *parent = obs_filter_get_parent(filter->source);
+	obs_log(LOG_INFO, "Setting canvas channel 0 to source: %s (type=%s)",
+		parent ? obs_source_get_name(parent) : "NULL",
+		parent ? obs_source_get_id(parent) : "NULL");
+	obs_canvas_set_channel(filter->canvas, 0, parent);
 
 	audio_t *audio = obs_get_audio();
 	if (obs_data_get_bool(settings, "mute_audio")) {
