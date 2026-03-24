@@ -141,19 +141,17 @@ static void set_filter_enabled(void *data, calldata_t *calldata)
 
 static void decklink_frontend_event(enum obs_frontend_event event, void *private_data)
 {
-	if (event != OBS_FRONTEND_EVENT_FINISHED_LOADING)
-		return;
-
 	struct decklink_output_filter_context *filter = private_data;
-	obs_frontend_remove_event_callback(decklink_frontend_event, filter);
 
-	obs_data_t *settings = obs_source_get_settings(filter->source);
-	bool auto_start = obs_data_get_bool(settings, "auto_start");
-
-	if (auto_start)
-		decklink_output_filter_start(filter, settings);
-
-	obs_data_release(settings);
+	if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
+		obs_data_t *settings = obs_source_get_settings(filter->source);
+		bool auto_start = obs_data_get_bool(settings, "auto_start");
+		if (auto_start)
+			decklink_output_filter_start(filter, settings);
+		obs_data_release(settings);
+	} else if (event == OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN) {
+		decklink_output_filter_stop(filter);
+	}
 }
 
 static void *decklink_output_filter_create(obs_data_t *settings, obs_source_t *source)
