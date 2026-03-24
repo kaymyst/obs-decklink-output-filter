@@ -57,27 +57,39 @@ static const char *decklink_output_filter_get_name(void *unused)
  */
 static void decklink_release_resources(struct decklink_output_filter_context *filter)
 {
+	obs_log(LOG_INFO, "release_resources: enter (output=%s, canvas=%s, audio=%s)",
+		filter->output ? "set" : "null", filter->canvas ? "set" : "null",
+		filter->silent_audio ? "set" : "null");
+
 	if (filter->output) {
+		obs_log(LOG_INFO, "release_resources: disconnecting stop signal");
 		signal_handler_t *sh = obs_output_get_signal_handler(filter->output);
 		signal_handler_disconnect(sh, "stop", output_stopped_cb, filter);
+		obs_log(LOG_INFO, "release_resources: releasing output");
 		obs_output_release(filter->output);
+		obs_log(LOG_INFO, "release_resources: output released");
 		filter->output = NULL;
 	}
 
 	if (filter->canvas) {
+		obs_log(LOG_INFO, "release_resources: dec_showing + releasing canvas");
 		obs_source_t *parent = obs_filter_get_parent(filter->source);
 		if (parent)
 			obs_source_dec_showing(parent);
 		obs_canvas_release(filter->canvas);
+		obs_log(LOG_INFO, "release_resources: canvas released");
 		filter->canvas = NULL;
 	}
 
 	if (filter->silent_audio) {
+		obs_log(LOG_INFO, "release_resources: closing silent audio");
 		audio_output_close(filter->silent_audio);
+		obs_log(LOG_INFO, "release_resources: silent audio closed");
 		filter->silent_audio = NULL;
 	}
 
 	filter->stopping = false;
+	obs_log(LOG_INFO, "release_resources: done");
 }
 
 /*
