@@ -43,8 +43,11 @@ static void decklink_output_filter_stop(void *data)
 	filter->active = false;
 
 	obs_output_force_stop(filter->output);
-	obs_source_dec_showing(obs_filter_get_parent(filter->source));
 	obs_output_release(filter->output);
+
+	obs_source_t *parent = obs_filter_get_parent(filter->source);
+	if (parent)
+		obs_source_dec_showing(parent);
 	obs_canvas_release(filter->canvas);
 	filter->output = NULL;
 	filter->canvas = NULL;
