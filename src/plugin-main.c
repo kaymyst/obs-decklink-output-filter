@@ -179,6 +179,9 @@ static void decklink_frontend_event(enum obs_frontend_event event, void *private
 		if (auto_start && !filter->active)
 			decklink_output_filter_start(filter, settings);
 		obs_data_release(settings);
+	} else if (event == OBS_FRONTEND_EVENT_EXIT) {
+		obs_log(LOG_INFO, "EXIT event: stopping output early (active=%s)", filter->active ? "true" : "false");
+		decklink_output_filter_stop(filter);
 	}
 }
 
