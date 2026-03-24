@@ -124,7 +124,6 @@ static void set_filter_enabled(void *data, calldata_t *calldata)
 
 	bool enable = calldata_bool(calldata, "enabled");
 	obs_data_t *settings = obs_source_get_settings(filter->source);
-	obs_data_release(settings);
 
 	bool auto_start = obs_data_get_bool(settings, "auto_start");
 
@@ -132,6 +131,8 @@ static void set_filter_enabled(void *data, calldata_t *calldata)
 		decklink_output_filter_start(filter, settings);
 	else
 		decklink_output_filter_stop(filter);
+
+	obs_data_release(settings);
 }
 
 static void *decklink_output_filter_create(obs_data_t *settings, obs_source_t *source)
@@ -173,7 +174,6 @@ static bool button_cb(obs_properties_t *properties, obs_property_t *property, vo
 	struct decklink_output_filter_context *filter = data;
 
 	obs_data_t *settings = obs_source_get_settings(filter->source);
-	obs_data_release(settings);
 
 	obs_property_set_enabled(property, false);
 
@@ -184,6 +184,8 @@ static bool button_cb(obs_properties_t *properties, obs_property_t *property, vo
 
 	obs_property_set_enabled(property, true);
 
+	obs_data_release(settings);
+
 	return true;
 }
 
@@ -192,6 +194,7 @@ static obs_properties_t *decklink_output_filter_properties(void *data)
 	struct decklink_output_filter_context *filter = data;
 
 	obs_properties_t *props = obs_get_output_properties("decklink_output");
+	obs_properties_add_bool(props, "auto_start", obs_module_text("AutoStart"));
 	obs_properties_add_bool(props, "mute_audio", obs_module_text("MuteAudio"));
 	filter->button = obs_properties_add_button2(props, "Button",
 						    filter->active ? obs_module_text("Stop") : obs_module_text("Start"),
