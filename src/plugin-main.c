@@ -1,16 +1,29 @@
 #include "obs.h"
 #include "obs-module.h"
 #include "plugin-support.h"
+#include "media-io/audio-io.h"
 
 struct decklink_output_filter_context {
 	obs_output_t *output;
 	obs_source_t *source;
 	obs_canvas_t *canvas;
+	audio_t *silent_audio;
 
 	obs_property_t *button;
 
 	bool active;
 };
+
+static bool silent_audio_callback(void *param, uint64_t start_ts, uint64_t end_ts, uint64_t *new_ts,
+				   uint32_t active_mixers, struct audio_output_data *mixes)
+{
+	UNUSED_PARAMETER(param);
+	UNUSED_PARAMETER(end_ts);
+	UNUSED_PARAMETER(active_mixers);
+	UNUSED_PARAMETER(mixes);
+	*new_ts = start_ts;
+	return true;
+}
 
 static const char *decklink_output_filter_get_name(void *unused)
 {
@@ -28,6 +41,11 @@ static void decklink_output_filter_stop(void *data)
 	obs_output_stop(filter->output);
 	obs_canvas_release(filter->canvas);
 	obs_output_release(filter->output);
+
+	if (filter->silent_audio) {
+		audio_output_close(filter->silent_audio);
+		filter->silent_audio = NULL;
+	}
 
 	filter->active = false;
 
@@ -55,7 +73,26 @@ static void decklink_output_filter_start(void *data, obs_data_t *settings)
 
 	obs_canvas_set_channel(filter->canvas, 0, obs_filter_get_parent(filter->source));
 
-	obs_output_set_media(filter->output, obs_canvas_get_video(filter->canvas), obs_get_audio());
+	audio_t *audio = obs_get_audio();
+	if (obs_data_get_bool(settings, "mute_audio")) {
+		struct obs_audio_info oai;
+		obs_get_audio_info(&oai);
+		struct audio_output_info aoi = {
+			.name = "decklink_filter_silent",
+			.samples_per_sec = oai.samples_per_sec,
+			.format = AUDIO_FORMAT_FLOAT_PLANAR,
+			.speakers = oai.speakers,
+			.input_callback = silent_audio_callback,
+		};
+		if (audio_output_open(&filter->silent_audio, &aoi) == AUDIO_OUTPUT_SUCCESS) {
+			audio = filter->silent_audio;
+		} else {
+			obs_log(LOG_WARNING, "Failed to create silent audio context, using main audio");
+			filter->silent_audio = NULL;
+		}
+	}
+
+	obs_output_set_media(filter->output, obs_canvas_get_video(filter->canvas), audio);
 
 	bool started = obs_output_start(filter->output);
 
@@ -103,6 +140,7 @@ static void *decklink_output_filter_create(obs_data_t *settings, obs_source_t *s
 	filter->source = source;
 	filter->active = false;
 	filter->button = NULL;
+	filter->silent_audio = NULL;
 
 	signal_handler_t *sh = obs_source_get_signal_handler(filter->source);
 	signal_handler_connect(sh, "enable", set_filter_enabled, filter);
@@ -154,6 +192,7 @@ static obs_properties_t *decklink_output_filter_properties(void *data)
 	struct decklink_output_filter_context *filter = data;
 
 	obs_properties_t *props = obs_get_output_properties("decklink_output");
+	obs_properties_add_bool(props, "mute_audio", obs_module_text("MuteAudio"));
 	filter->button = obs_properties_add_button2(props, "Button",
 						    filter->active ? obs_module_text("Stop") : obs_module_text("Start"),
 						    button_cb, filter);
