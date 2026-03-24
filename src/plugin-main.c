@@ -10,9 +10,13 @@ struct decklink_output_filter_context {
 	obs_canvas_t *canvas;
 	audio_t *silent_audio;
 
-	bool active;
+	bool active;   /* output is running */
+	bool stopping; /* async stop initiated, waiting for "stop" signal */
 	bool loaded;
 };
+
+/* Forward declaration */
+static void output_stopped_cb(void *data, calldata_t *calldata);
 
 static bool silent_audio_callback(void *param, uint64_t start_ts, uint64_t end_ts, uint64_t *new_ts,
 				   uint32_t active_mixers, struct audio_output_data *mixes)
@@ -31,6 +35,52 @@ static const char *decklink_output_filter_get_name(void *unused)
 	return obs_module_text("DecklinkOutput");
 }
 
+/*
+ * Release output/canvas/audio resources.
+ * Must only be called after the output has fully stopped.
+ * Disconnects the "stop" signal to prevent double-release.
+ */
+static void decklink_release_resources(struct decklink_output_filter_context *filter)
+{
+	if (filter->output) {
+		signal_handler_t *sh = obs_output_get_signal_handler(filter->output);
+		signal_handler_disconnect(sh, "stop", output_stopped_cb, filter);
+		obs_output_release(filter->output);
+		filter->output = NULL;
+	}
+
+	if (filter->canvas) {
+		obs_source_t *parent = obs_filter_get_parent(filter->source);
+		if (parent)
+			obs_source_dec_showing(parent);
+		obs_canvas_release(filter->canvas);
+		filter->canvas = NULL;
+	}
+
+	if (filter->silent_audio) {
+		audio_output_close(filter->silent_audio);
+		filter->silent_audio = NULL;
+	}
+
+	filter->stopping = false;
+}
+
+/*
+ * Called on the output thread when the output has fully stopped.
+ * Releases resources without blocking the main thread.
+ */
+static void output_stopped_cb(void *data, calldata_t *calldata)
+{
+	UNUSED_PARAMETER(calldata);
+	struct decklink_output_filter_context *filter = data;
+	obs_log(LOG_INFO, "Output stopped signal: releasing resources");
+	decklink_release_resources(filter);
+}
+
+/*
+ * Initiate a non-blocking stop.  Resources are released via the output's
+ * "stop" signal once the hardware finishes.  Safe to call from the UI thread.
+ */
 static void decklink_output_filter_stop(void *data)
 {
 	struct decklink_output_filter_context *filter = data;
@@ -41,21 +91,45 @@ static void decklink_output_filter_stop(void *data)
 		return;
 
 	filter->active = false;
+	filter->stopping = true;
 
-	obs_output_force_stop(filter->output);
-	obs_output_release(filter->output);
+	signal_handler_t *sh = obs_output_get_signal_handler(filter->output);
+	signal_handler_connect(sh, "stop", output_stopped_cb, filter);
 
-	obs_source_t *parent = obs_filter_get_parent(filter->source);
-	if (parent)
-		obs_source_dec_showing(parent);
-	obs_canvas_release(filter->canvas);
-	filter->output = NULL;
-	filter->canvas = NULL;
+	obs_output_stop(filter->output); /* non-blocking */
+}
 
-	if (filter->silent_audio) {
-		audio_output_close(filter->silent_audio);
-		filter->silent_audio = NULL;
+/*
+ * Synchronous stop + release used in destroy (and start-failure path) where
+ * we must not return until all resources are freed.
+ * Handles both active and async-stopping states.
+ */
+static void decklink_output_filter_stop_sync(struct decklink_output_filter_context *filter)
+{
+	if (!filter->active && !filter->stopping)
+		return;
+
+	obs_log(LOG_INFO, "Filter stop sync (active=%s, stopping=%s)", filter->active ? "true" : "false",
+		filter->stopping ? "true" : "false");
+
+	filter->active = false;
+
+	if (filter->output) {
+		/*
+		 * Disconnect async signal before force-stopping so we control
+		 * the release and don't double-free via the signal handler.
+		 */
+		signal_handler_t *sh = obs_output_get_signal_handler(filter->output);
+		signal_handler_disconnect(sh, "stop", output_stopped_cb, filter);
+
+		/*
+		 * If an async stop was already in flight the output is already
+		 * in the process of stopping; force_stop returns quickly.
+		 */
+		obs_output_force_stop(filter->output);
 	}
+
+	decklink_release_resources(filter);
 }
 
 static void decklink_output_filter_start(void *data, obs_data_t *settings)
@@ -66,7 +140,7 @@ static void decklink_output_filter_start(void *data, obs_data_t *settings)
 		filter->active ? "true" : "false",
 		obs_source_enabled(filter->source) ? "true" : "false");
 
-	if (filter->active)
+	if (filter->active || filter->stopping)
 		return;
 
 	if (!obs_source_enabled(filter->source)) {
@@ -125,7 +199,7 @@ static void decklink_output_filter_start(void *data, obs_data_t *settings)
 	if (!started) {
 		const char *last_error = obs_output_get_last_error(filter->output);
 		obs_log(LOG_ERROR, "Filter failed to start (last error: %s)", last_error ? last_error : "none");
-		decklink_output_filter_stop(filter);
+		decklink_output_filter_stop_sync(filter);
 		return;
 	}
 
@@ -147,7 +221,7 @@ static void set_filter_enabled(void *data, calldata_t *calldata)
 	obs_log(LOG_INFO, "Filter enable signal received (enable=%s)", enable ? "true" : "false");
 
 	if (!enable) {
-		decklink_output_filter_stop(filter);
+		decklink_output_filter_stop(filter); /* async: safe from any thread */
 		return;
 	}
 
@@ -180,7 +254,14 @@ static void decklink_frontend_event(enum obs_frontend_event event, void *private
 			decklink_output_filter_start(filter, settings);
 		obs_data_release(settings);
 	} else if (event == OBS_FRONTEND_EVENT_EXIT) {
-		obs_log(LOG_INFO, "EXIT event: stopping output early (active=%s)", filter->active ? "true" : "false");
+		/*
+		 * Initiate async stop so the main thread stays free to process
+		 * Qt events.  This lets decklink-output-ui.dll clean up its Qt
+		 * timers on the main thread via queued connections, avoiding
+		 * the cross-thread QObject destruction crash.
+		 * Destroy will sync-wait for the stop to complete if needed.
+		 */
+		obs_log(LOG_INFO, "EXIT event: initiating async stop (active=%s)", filter->active ? "true" : "false");
 		decklink_output_filter_stop(filter);
 	}
 }
@@ -192,6 +273,7 @@ static void *decklink_output_filter_create(obs_data_t *settings, obs_source_t *s
 	struct decklink_output_filter_context *filter = bzalloc(sizeof(struct decklink_output_filter_context));
 	filter->source = source;
 	filter->active = false;
+	filter->stopping = false;
 	filter->silent_audio = NULL;
 
 	signal_handler_t *sh = obs_source_get_signal_handler(filter->source);
@@ -208,7 +290,12 @@ static void decklink_output_filter_destroy(void *data)
 
 	obs_frontend_remove_event_callback(decklink_frontend_event, filter);
 
-	decklink_output_filter_stop(filter);
+	/*
+	 * Use the sync stop to guarantee resources are released before we
+	 * free the filter struct.  If EXIT already triggered an async stop
+	 * the output is already stopping; force_stop returns quickly.
+	 */
+	decklink_output_filter_stop_sync(filter);
 
 	signal_handler_t *sh = obs_source_get_signal_handler(filter->source);
 	signal_handler_disconnect(sh, "enable", set_filter_enabled, filter);
@@ -219,19 +306,16 @@ static void decklink_output_filter_destroy(void *data)
 static bool button_cb(obs_properties_t *properties, obs_property_t *property, void *data)
 {
 	UNUSED_PARAMETER(properties);
+	UNUSED_PARAMETER(property);
 
 	struct decklink_output_filter_context *filter = data;
 
 	obs_data_t *settings = obs_source_get_settings(filter->source);
 
-	obs_property_set_enabled(property, false);
-
 	if (!filter->active)
 		decklink_output_filter_start(filter, settings);
 	else
-		decklink_output_filter_stop(filter);
-
-	obs_property_set_enabled(property, true);
+		decklink_output_filter_stop(filter); /* async: never blocks the UI thread */
 
 	obs_data_release(settings);
 
