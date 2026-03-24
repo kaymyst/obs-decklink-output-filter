@@ -1,5 +1,6 @@
 #include "obs.h"
 #include "obs-module.h"
+#include "obs-frontend-api.h"
 #include "plugin-support.h"
 #include "media-io/audio-io.h"
 
@@ -123,20 +124,42 @@ static void set_filter_enabled(void *data, calldata_t *calldata)
 	struct decklink_output_filter_context *filter = data;
 
 	bool enable = calldata_bool(calldata, "enabled");
-	obs_data_t *settings = obs_source_get_settings(filter->source);
 
+	if (!enable) {
+		decklink_output_filter_stop(filter);
+		return;
+	}
+
+	obs_data_t *settings = obs_source_get_settings(filter->source);
 	bool auto_start = obs_data_get_bool(settings, "auto_start");
 
-	if (enable && auto_start)
+	if (auto_start && !filter->active)
 		decklink_output_filter_start(filter, settings);
-	else
-		decklink_output_filter_stop(filter);
+
+	obs_data_release(settings);
+}
+
+static void decklink_frontend_event(enum obs_frontend_event event, void *private_data)
+{
+	if (event != OBS_FRONTEND_EVENT_FINISHED_LOADING)
+		return;
+
+	struct decklink_output_filter_context *filter = private_data;
+	obs_frontend_remove_event_callback(decklink_frontend_event, filter);
+
+	obs_data_t *settings = obs_source_get_settings(filter->source);
+	bool auto_start = obs_data_get_bool(settings, "auto_start");
+
+	if (auto_start)
+		decklink_output_filter_start(filter, settings);
 
 	obs_data_release(settings);
 }
 
 static void *decklink_output_filter_create(obs_data_t *settings, obs_source_t *source)
 {
+	UNUSED_PARAMETER(settings);
+
 	struct decklink_output_filter_context *filter = bzalloc(sizeof(struct decklink_output_filter_context));
 	filter->source = source;
 	filter->active = false;
@@ -146,10 +169,7 @@ static void *decklink_output_filter_create(obs_data_t *settings, obs_source_t *s
 	signal_handler_t *sh = obs_source_get_signal_handler(filter->source);
 	signal_handler_connect(sh, "enable", set_filter_enabled, filter);
 
-	bool auto_start = obs_data_get_bool(settings, "auto_start");
-
-	if (auto_start)
-		decklink_output_filter_start(filter, settings);
+	obs_frontend_add_event_callback(decklink_frontend_event, filter);
 
 	return filter;
 }
@@ -158,6 +178,8 @@ static void decklink_output_filter_destroy(void *data)
 {
 	struct decklink_output_filter_context *filter = data;
 	filter->button = NULL;
+
+	obs_frontend_remove_event_callback(decklink_frontend_event, filter);
 
 	decklink_output_filter_stop(filter);
 
