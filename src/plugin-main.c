@@ -176,9 +176,6 @@ static void decklink_frontend_event(enum obs_frontend_event event, void *private
 		if (auto_start && !filter->active)
 			decklink_output_filter_start(filter, settings);
 		obs_data_release(settings);
-	} else if (event == OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN) {
-		obs_log(LOG_INFO, "SCRIPTING_SHUTDOWN: stopping filter");
-		decklink_output_filter_stop(filter);
 	}
 }
 
