@@ -3,6 +3,7 @@
 #include "obs-frontend-api.h"
 #include "plugin-support.h"
 #include "media-io/audio-io.h"
+#include "util/threading.h"
 
 struct decklink_output_filter_context {
 	obs_output_t *output;
