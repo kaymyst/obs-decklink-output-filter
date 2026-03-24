@@ -39,16 +39,19 @@ static void decklink_output_filter_stop(void *data)
 	if (!filter->active)
 		return;
 
-	obs_output_stop(filter->output);
-	obs_canvas_release(filter->canvas);
+	filter->active = false;
+
+	obs_output_force_stop(filter->output);
+	obs_source_dec_showing(obs_filter_get_parent(filter->source));
 	obs_output_release(filter->output);
+	obs_canvas_release(filter->canvas);
+	filter->output = NULL;
+	filter->canvas = NULL;
 
 	if (filter->silent_audio) {
 		audio_output_close(filter->silent_audio);
 		filter->silent_audio = NULL;
 	}
-
-	filter->active = false;
 
 	if (filter->button)
 		obs_property_set_description(filter->button, obs_module_text("Start"));
@@ -95,11 +98,11 @@ static void decklink_output_filter_start(void *data, obs_data_t *settings)
 
 	obs_output_set_media(filter->output, obs_canvas_get_video(filter->canvas), audio);
 
-	bool started = obs_output_start(filter->output);
-
 	obs_source_inc_showing(obs_filter_get_parent(filter->source));
 
 	filter->active = true;
+
+	bool started = obs_output_start(filter->output);
 
 	if (!started) {
 		obs_log(LOG_ERROR, "Filter failed to start");
