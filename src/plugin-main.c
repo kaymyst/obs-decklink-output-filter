@@ -10,8 +10,6 @@ struct decklink_output_filter_context {
 	obs_canvas_t *canvas;
 	audio_t *silent_audio;
 
-	obs_property_t *button;
-
 	bool active;
 };
 
@@ -52,9 +50,6 @@ static void decklink_output_filter_stop(void *data)
 		audio_output_close(filter->silent_audio);
 		filter->silent_audio = NULL;
 	}
-
-	if (filter->button)
-		obs_property_set_description(filter->button, obs_module_text("Start"));
 }
 
 static void decklink_output_filter_start(void *data, obs_data_t *settings)
@@ -110,9 +105,6 @@ static void decklink_output_filter_start(void *data, obs_data_t *settings)
 		return;
 	}
 
-	if (filter->button)
-		obs_property_set_description(filter->button, obs_module_text("Stop"));
-
 	obs_log(LOG_INFO, "Filter started successfully");
 }
 
@@ -164,7 +156,6 @@ static void *decklink_output_filter_create(obs_data_t *settings, obs_source_t *s
 	struct decklink_output_filter_context *filter = bzalloc(sizeof(struct decklink_output_filter_context));
 	filter->source = source;
 	filter->active = false;
-	filter->button = NULL;
 	filter->silent_audio = NULL;
 
 	signal_handler_t *sh = obs_source_get_signal_handler(filter->source);
@@ -178,7 +169,6 @@ static void *decklink_output_filter_create(obs_data_t *settings, obs_source_t *s
 static void decklink_output_filter_destroy(void *data)
 {
 	struct decklink_output_filter_context *filter = data;
-	filter->button = NULL;
 
 	obs_frontend_remove_event_callback(decklink_frontend_event, filter);
 
@@ -219,9 +209,9 @@ static obs_properties_t *decklink_output_filter_properties(void *data)
 	obs_properties_t *props = obs_get_output_properties("decklink_output");
 	obs_properties_add_bool(props, "auto_start", obs_module_text("AutoStart"));
 	obs_properties_add_bool(props, "mute_audio", obs_module_text("MuteAudio"));
-	filter->button = obs_properties_add_button2(props, "Button",
-						    filter->active ? obs_module_text("Stop") : obs_module_text("Start"),
-						    button_cb, filter);
+	obs_properties_add_button2(props, "Button",
+				   filter->active ? obs_module_text("Stop") : obs_module_text("Start"), button_cb,
+				   filter);
 
 	return props;
 }
