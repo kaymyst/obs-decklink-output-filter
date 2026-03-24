@@ -72,10 +72,12 @@ static void decklink_release_resources(struct decklink_output_filter_context *fi
 	}
 
 	if (filter->canvas) {
-		obs_log(LOG_INFO, "release_resources: dec_showing + releasing canvas");
 		obs_source_t *parent = obs_filter_get_parent(filter->source);
+		obs_log(LOG_INFO, "release_resources: dec_showing (parent=%s)",
+			parent ? obs_source_get_name(parent) : "null");
 		if (parent)
 			obs_source_dec_showing(parent);
+		obs_log(LOG_INFO, "release_resources: dec_showing done, releasing canvas");
 		obs_canvas_release(filter->canvas);
 		obs_log(LOG_INFO, "release_resources: canvas released");
 		filter->canvas = NULL;
