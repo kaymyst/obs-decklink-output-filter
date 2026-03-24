@@ -13,10 +13,24 @@ struct decklink_output_filter_context {
 	bool active;   /* output is running */
 	bool stopping; /* async stop initiated, waiting for "stop" signal */
 	bool loaded;
+
+	volatile long refcount; /* 1 held by destroy, 1 held per queued deferred_release task */
 };
 
-/* Forward declaration */
+/* Forward declarations */
 static void output_stopped_cb(void *data, calldata_t *calldata);
+static void filter_release(struct decklink_output_filter_context *filter);
+
+static void filter_addref(struct decklink_output_filter_context *filter)
+{
+	os_atomic_inc_long(&filter->refcount);
+}
+
+static void filter_release(struct decklink_output_filter_context *filter)
+{
+	if (os_atomic_dec_long(&filter->refcount) == 0)
+		bfree(filter);
+}
 
 static bool silent_audio_callback(void *param, uint64_t start_ts, uint64_t end_ts, uint64_t *new_ts,
 				   uint32_t active_mixers, struct audio_output_data *mixes)
@@ -66,15 +80,32 @@ static void decklink_release_resources(struct decklink_output_filter_context *fi
 }
 
 /*
+ * Runs on the UI/main thread (queued via obs_queue_task).
+ * Safe to call signal_handler_disconnect and obs_output_release here
+ * because we are no longer inside the signal callback.
+ */
+static void deferred_release(void *param)
+{
+	struct decklink_output_filter_context *filter = param;
+	obs_log(LOG_INFO, "Deferred release: stopping=%s", filter->stopping ? "true" : "false");
+	if (filter->stopping)
+		decklink_release_resources(filter);
+	filter_release(filter);
+}
+
+/*
  * Called on the output thread when the output has fully stopped.
- * Releases resources without blocking the main thread.
+ * Must NOT call signal_handler_disconnect or obs_output_release here —
+ * doing so from inside a signal callback corrupts the handler list.
+ * Instead, queue the release to run on the UI thread.
  */
 static void output_stopped_cb(void *data, calldata_t *calldata)
 {
 	UNUSED_PARAMETER(calldata);
 	struct decklink_output_filter_context *filter = data;
-	obs_log(LOG_INFO, "Output stopped signal: releasing resources");
-	decklink_release_resources(filter);
+	obs_log(LOG_INFO, "Output stopped signal: queuing deferred release");
+	filter_addref(filter);
+	obs_queue_task(OBS_TASK_UI, deferred_release, filter, false);
 }
 
 /*
@@ -275,6 +306,7 @@ static void *decklink_output_filter_create(obs_data_t *settings, obs_source_t *s
 	filter->active = false;
 	filter->stopping = false;
 	filter->silent_audio = NULL;
+	filter->refcount = 1;
 
 	signal_handler_t *sh = obs_source_get_signal_handler(filter->source);
 	signal_handler_connect(sh, "enable", set_filter_enabled, filter);
@@ -300,7 +332,7 @@ static void decklink_output_filter_destroy(void *data)
 	signal_handler_t *sh = obs_source_get_signal_handler(filter->source);
 	signal_handler_disconnect(sh, "enable", set_filter_enabled, filter);
 
-	bfree(filter);
+	filter_release(filter);
 }
 
 static bool button_cb(obs_properties_t *properties, obs_property_t *property, void *data)
