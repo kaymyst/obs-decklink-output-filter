@@ -11,6 +11,7 @@ struct decklink_output_filter_context {
 	audio_t *silent_audio;
 
 	bool active;
+	bool loaded;
 };
 
 static bool silent_audio_callback(void *param, uint64_t start_ts, uint64_t end_ts, uint64_t *new_ts,
@@ -150,10 +151,11 @@ static void set_filter_enabled(void *data, calldata_t *calldata)
 	obs_data_t *settings = obs_source_get_settings(filter->source);
 	bool auto_start = obs_data_get_bool(settings, "auto_start");
 
-	obs_log(LOG_INFO, "Filter enable signal: auto_start=%s, active=%s", auto_start ? "true" : "false",
-		filter->active ? "true" : "false");
+	obs_log(LOG_INFO, "Filter enable signal: auto_start=%s, active=%s, loaded=%s",
+		auto_start ? "true" : "false", filter->active ? "true" : "false",
+		filter->loaded ? "true" : "false");
 
-	if (auto_start && !filter->active)
+	if (auto_start && !filter->active && filter->loaded)
 		decklink_output_filter_start(filter, settings);
 
 	obs_data_release(settings);
@@ -164,12 +166,14 @@ static void decklink_frontend_event(enum obs_frontend_event event, void *private
 	struct decklink_output_filter_context *filter = private_data;
 
 	if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
+		filter->loaded = true;
 		obs_data_t *settings = obs_source_get_settings(filter->source);
 		bool auto_start = obs_data_get_bool(settings, "auto_start");
-		obs_log(LOG_INFO, "FINISHED_LOADING: auto_start=%s, active=%s, source_enabled=%s",
+		obs_log(LOG_INFO, "FINISHED_LOADING: auto_start=%s, active=%s, source_enabled=%s, parent=%s",
 			auto_start ? "true" : "false", filter->active ? "true" : "false",
-			obs_source_enabled(filter->source) ? "true" : "false");
-		if (auto_start)
+			obs_source_enabled(filter->source) ? "true" : "false",
+			obs_filter_get_parent(filter->source) ? obs_source_get_name(obs_filter_get_parent(filter->source)) : "NULL");
+		if (auto_start && !filter->active)
 			decklink_output_filter_start(filter, settings);
 		obs_data_release(settings);
 	} else if (event == OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN) {
