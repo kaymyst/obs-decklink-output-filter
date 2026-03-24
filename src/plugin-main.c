@@ -34,6 +34,8 @@ static void decklink_output_filter_stop(void *data)
 {
 	struct decklink_output_filter_context *filter = data;
 
+	obs_log(LOG_INFO, "Filter stop requested (active=%s)", filter->active ? "true" : "false");
+
 	if (!filter->active)
 		return;
 
@@ -56,11 +58,15 @@ static void decklink_output_filter_start(void *data, obs_data_t *settings)
 {
 	struct decklink_output_filter_context *filter = data;
 
+	obs_log(LOG_INFO, "Filter start requested (active=%s, source_enabled=%s)",
+		filter->active ? "true" : "false",
+		obs_source_enabled(filter->source) ? "true" : "false");
+
 	if (filter->active)
 		return;
 
 	if (!obs_source_enabled(filter->source)) {
-		obs_log(LOG_ERROR, "Filter not enabled");
+		obs_log(LOG_WARNING, "Filter start skipped: filter is disabled");
 		return;
 	}
 
@@ -97,10 +103,13 @@ static void decklink_output_filter_start(void *data, obs_data_t *settings)
 
 	filter->active = true;
 
+	obs_log(LOG_INFO, "Calling obs_output_start...");
 	bool started = obs_output_start(filter->output);
+	obs_log(LOG_INFO, "obs_output_start returned: %s", started ? "true" : "false");
 
 	if (!started) {
-		obs_log(LOG_ERROR, "Filter failed to start");
+		const char *last_error = obs_output_get_last_error(filter->output);
+		obs_log(LOG_ERROR, "Filter failed to start (last error: %s)", last_error ? last_error : "none");
 		decklink_output_filter_stop(filter);
 		return;
 	}
@@ -120,6 +129,8 @@ static void set_filter_enabled(void *data, calldata_t *calldata)
 
 	bool enable = calldata_bool(calldata, "enabled");
 
+	obs_log(LOG_INFO, "Filter enable signal received (enable=%s)", enable ? "true" : "false");
+
 	if (!enable) {
 		decklink_output_filter_stop(filter);
 		return;
@@ -127,6 +138,9 @@ static void set_filter_enabled(void *data, calldata_t *calldata)
 
 	obs_data_t *settings = obs_source_get_settings(filter->source);
 	bool auto_start = obs_data_get_bool(settings, "auto_start");
+
+	obs_log(LOG_INFO, "Filter enable signal: auto_start=%s, active=%s", auto_start ? "true" : "false",
+		filter->active ? "true" : "false");
 
 	if (auto_start && !filter->active)
 		decklink_output_filter_start(filter, settings);
@@ -141,10 +155,14 @@ static void decklink_frontend_event(enum obs_frontend_event event, void *private
 	if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
 		obs_data_t *settings = obs_source_get_settings(filter->source);
 		bool auto_start = obs_data_get_bool(settings, "auto_start");
+		obs_log(LOG_INFO, "FINISHED_LOADING: auto_start=%s, active=%s, source_enabled=%s",
+			auto_start ? "true" : "false", filter->active ? "true" : "false",
+			obs_source_enabled(filter->source) ? "true" : "false");
 		if (auto_start)
 			decklink_output_filter_start(filter, settings);
 		obs_data_release(settings);
 	} else if (event == OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN) {
+		obs_log(LOG_INFO, "SCRIPTING_SHUTDOWN: stopping filter");
 		decklink_output_filter_stop(filter);
 	}
 }
