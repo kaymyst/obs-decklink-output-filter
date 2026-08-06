@@ -71,7 +71,7 @@ static void decklink_output_filter_start(void *data, obs_data_t *settings)
 
 	struct obs_video_info ovi;
 	obs_get_video_info(&ovi);
-	filter->canvas = obs_canvas_create_private(NULL, &ovi, DEVICE);
+	filter->canvas = obs_canvas_create_private("decklink_filter_canvas", &ovi, DEVICE);
 
 	obs_canvas_set_channel(filter->canvas, 0, obs_filter_get_parent(filter->source));
 
